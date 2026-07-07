@@ -12,38 +12,74 @@
 
     body {
       margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      background: #0b1020;
-      color: #e5ecff;
+      min-height: 100svh;
+      background: radial-gradient(circle at top, #1a1d24 0%, #090a0f 42%, #050507 100%);
+      color: #f5f7ff;
     }
 
     main {
-      width: min(920px, 96vw);
+      width: min(430px, 100vw);
+      min-height: 100svh;
+      margin: 0 auto;
+      box-sizing: border-box;
+      padding: 1.2rem 0.9rem 1.8rem;
       display: grid;
-      gap: 0.75rem;
+      gap: 0.8rem;
+      background: #000;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+      margin-top: 0.4rem;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      letter-spacing: 0.02em;
+      font-weight: 700;
+    }
+
+    .status-pill {
+      border: 1px solid #2f323a;
+      border-radius: 999px;
+      padding: 0.25rem 0.55rem;
+      background: #101218;
+      color: #d7dcef;
+      font-size: 0.8rem;
+      white-space: nowrap;
     }
 
     .panel {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.55rem;
       align-items: center;
       flex-wrap: wrap;
+      justify-content: center;
     }
 
     button {
-      background: #2754ff;
+      background: #1b1f2b;
       color: #fff;
-      border: 0;
-      border-radius: 0.4rem;
-      padding: 0.55rem 0.8rem;
+      border: 1px solid #2f323a;
+      border-radius: 999px;
+      padding: 0.6rem 0.95rem;
       cursor: pointer;
       font: inherit;
+      font-weight: 600;
+    }
+
+    button.primary {
+      background: #f5f7ff;
+      color: #050507;
+      border-color: #f5f7ff;
     }
 
     button:disabled {
-      opacity: 0.6;
+      opacity: 0.45;
       cursor: not-allowed;
     }
 
@@ -51,14 +87,16 @@
       position: relative;
       width: 100%;
       aspect-ratio: 4 / 3;
+      overflow: hidden;
+      border-radius: 1rem;
+      border: 1px solid #1f232d;
+      background: #0a0b10;
     }
 
     canvas {
       width: 100%;
       aspect-ratio: 4 / 3;
       background: #090c17;
-      border: 1px solid #1d284f;
-      border-radius: 0.5rem;
       image-rendering: optimizeQuality;
     }
 
@@ -71,8 +109,28 @@
 
     #scanline {
       background: transparent;
-      border: 0;
       pointer-events: none;
+    }
+
+    .settings {
+      display: grid;
+      gap: 0.35rem;
+      margin-top: 0.2rem;
+    }
+
+    label {
+      color: #c7ccdc;
+      font-size: 0.86rem;
+      padding-left: 0.1rem;
+    }
+
+    select {
+      background: #101218;
+      color: #f5f7ff;
+      border: 1px solid #2f323a;
+      border-radius: 0.65rem;
+      padding: 0.55rem 0.7rem;
+      font: inherit;
     }
 
     .hidden-video {
@@ -87,28 +145,34 @@
 
     p {
       margin: 0;
-      color: #b3c5ff;
-      font-size: 0.95rem;
+      color: #bcc3d6;
+      font-size: 0.9rem;
+      line-height: 1.35;
     }
   </style>
 </head>
 <body>
   <main>
-    <h1>Blue Line Time Warp</h1>
+    <div class="top-bar">
+      <h1>Blue Line Time Warp</h1>
+      <span id="status" class="status-pill">Idle</span>
+    </div>
     <p>Click Start Camera to begin. The blue line scans once (horizontal or vertical) and captures a slice of time into the output.</p>
+    <div class="canvas-wrap">
+      <canvas id="output" width="640" height="480" aria-label="Time warp output"></canvas>
+      <canvas id="scanline" width="640" height="480" aria-hidden="true"></canvas>
+    </div>
     <div class="panel">
-      <button id="start">Start Camera</button>
+      <button id="start" class="primary">Start Camera</button>
+      <button id="switch-camera">Switch Camera</button>
       <button id="reset" disabled>Reset Warp</button>
+    </div>
+    <div class="settings">
       <label for="direction">Direction</label>
       <select id="direction">
         <option value="horizontal" selected>Horizontal</option>
         <option value="vertical">Vertical</option>
       </select>
-      <span id="status">Idle</span>
-    </div>
-    <div class="canvas-wrap">
-      <canvas id="output" width="640" height="480" aria-label="Time warp output"></canvas>
-      <canvas id="scanline" width="640" height="480" aria-hidden="true"></canvas>
     </div>
   </main>
 
@@ -118,6 +182,7 @@
 
   <script>
     const startBtn = document.getElementById('start');
+    const switchCameraBtn = document.getElementById('switch-camera');
     const resetBtn = document.getElementById('reset');
     const directionSelect = document.getElementById('direction');
     const statusEl = document.getElementById('status');
@@ -134,6 +199,7 @@
     const warpCtx = warpCanvas.getContext('2d');
 
     let stream;
+    let facingMode = 'user';
     let scanPos = 0;
     let direction = directionSelect.value;
     let isScanning = false;
@@ -162,6 +228,15 @@
         cancelAnimationFrame(animationId);
         animationId = undefined;
       }
+    }
+
+    function stopStream() {
+      if (!stream) {
+        return;
+      }
+      stream.getTracks().forEach((track) => track.stop());
+      stream = undefined;
+      resetBtn.disabled = true;
     }
 
     function draw() {
@@ -256,18 +331,23 @@
       animationId = requestAnimationFrame(draw);
     }
 
-    async function start() {
+    async function startCamera(requestedFacingMode = facingMode) {
       if (stream) {
+        return;
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setStatus('Camera API is unavailable in this browser.');
         return;
       }
 
       startBtn.disabled = true;
+      switchCameraBtn.disabled = true;
       setStatus('Requesting camera permission…');
 
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: 'user',
+            facingMode: { ideal: requestedFacingMode },
             width: { ideal: 640 },
             height: { ideal: 480 }
           },
@@ -277,17 +357,39 @@
         video.srcObject = stream;
 
         await video.play();
+        facingMode = requestedFacingMode;
         resetBtn.disabled = false;
         resetOutput();
-        setStatus('Camera active. Scanning one full pass…');
+        const cameraLabel = facingMode === 'environment' ? 'rear' : 'front';
+        setStatus(`Camera active (${cameraLabel}). Scanning one full pass…`);
       } catch (error) {
         startBtn.disabled = false;
+        switchCameraBtn.disabled = false;
         setStatus('Camera access failed. Please allow permissions and retry.');
         console.error(error);
+        return;
       }
+
+      switchCameraBtn.disabled = false;
     }
 
-    startBtn.addEventListener('click', start);
+    async function switchCamera() {
+      const nextFacingMode = facingMode === 'user' ? 'environment' : 'user';
+
+      if (!stream) {
+        facingMode = nextFacingMode;
+        const cameraLabel = facingMode === 'environment' ? 'rear' : 'front';
+        setStatus(`Camera set to ${cameraLabel}. Tap Start Camera.`);
+        return;
+      }
+
+      stopLoop();
+      stopStream();
+      await startCamera(nextFacingMode);
+    }
+
+    startBtn.addEventListener('click', () => startCamera(facingMode));
+    switchCameraBtn.addEventListener('click', switchCamera);
     resetBtn.addEventListener('click', resetOutput);
     directionSelect.addEventListener('change', () => {
       direction = directionSelect.value;
@@ -298,11 +400,7 @@
 
     window.addEventListener('beforeunload', () => {
       stopLoop();
-      if (!stream) {
-        return;
-      }
-      stream.getTracks().forEach((track) => track.stop());
-      stream = undefined;
+      stopStream();
     });
 
     resetOutput();
