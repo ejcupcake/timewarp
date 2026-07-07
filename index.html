@@ -93,6 +93,8 @@
     let stream;
     let scanX = 0;
     let animationId;
+    let lastLineX;
+    let lastLinePixels;
 
     function setStatus(text) {
       statusEl.textContent = text;
@@ -100,8 +102,27 @@
 
     function resetOutput() {
       scanX = 0;
-      outputCtx.fillStyle = '#090c17';
-      outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+      lastLineX = undefined;
+      lastLinePixels = undefined;
+
+      if (stream && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        frameCtx.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+        outputCtx.drawImage(
+          frameCanvas,
+          0,
+          0,
+          frameCanvas.width,
+          frameCanvas.height,
+          0,
+          0,
+          outputCanvas.width,
+          outputCanvas.height
+        );
+      } else {
+        outputCtx.fillStyle = '#090c17';
+        outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+      }
+
       setStatus('Warp reset. Ready to scan.');
     }
 
@@ -127,9 +148,16 @@
         outputCanvas.height
       );
 
+      if (lastLinePixels && lastLineX !== undefined) {
+        outputCtx.putImageData(lastLinePixels, lastLineX, 0);
+      }
+
+      lastLineX = scanX;
+      lastLinePixels = outputCtx.getImageData(scanX, 0, 1, outputCanvas.height);
+
       outputCtx.save();
       outputCtx.strokeStyle = '#37b7ff';
-      outputCtx.lineWidth = 2;
+      outputCtx.lineWidth = 1;
       outputCtx.beginPath();
       outputCtx.moveTo(scanX + 0.5, 0);
       outputCtx.lineTo(scanX + 0.5, outputCanvas.height);
