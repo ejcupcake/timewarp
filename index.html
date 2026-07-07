@@ -95,10 +95,15 @@
 <body>
   <main>
     <h1>Blue Line Time Warp</h1>
-    <p>Click Start Camera to begin. The blue line scans left to right and captures a slice of time into the output.</p>
+    <p>Click Start Camera to begin. The blue line scans once (horizontal or vertical) and captures a slice of time into the output.</p>
     <div class="panel">
       <button id="start">Start Camera</button>
       <button id="reset" disabled>Reset Warp</button>
+      <label for="direction">Direction</label>
+      <select id="direction">
+        <option value="horizontal" selected>Horizontal</option>
+        <option value="vertical">Vertical</option>
+      </select>
       <span id="status">Idle</span>
     </div>
     <div class="canvas-wrap">
@@ -109,23 +114,29 @@
 
   <video id="video" class="hidden-video" playsinline autoplay muted></video>
   <canvas id="frame" width="640" height="480" hidden></canvas>
+  <canvas id="warp" width="640" height="480" hidden></canvas>
 
   <script>
     const startBtn = document.getElementById('start');
     const resetBtn = document.getElementById('reset');
+    const directionSelect = document.getElementById('direction');
     const statusEl = document.getElementById('status');
 
     const video = document.getElementById('video');
     const outputCanvas = document.getElementById('output');
     const scanlineCanvas = document.getElementById('scanline');
     const frameCanvas = document.getElementById('frame');
+    const warpCanvas = document.getElementById('warp');
 
     const outputCtx = outputCanvas.getContext('2d');
     const scanlineCtx = scanlineCanvas.getContext('2d');
     const frameCtx = frameCanvas.getContext('2d');
+    const warpCtx = warpCanvas.getContext('2d');
 
     let stream;
-    let scanX = 0;
+    let scanPos = 0;
+    let direction = directionSelect.value;
+    let isScanning = false;
     let animationId;
 
     function setStatus(text) {
@@ -133,11 +144,17 @@
     }
 
     function resetOutput() {
-      scanX = 0;
+      stopLoop();
+      scanPos = 0;
+      isScanning = true;
       outputCtx.fillStyle = '#090c17';
       outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+      warpCtx.clearRect(0, 0, warpCanvas.width, warpCanvas.height);
       scanlineCtx.clearRect(0, 0, scanlineCanvas.width, scanlineCanvas.height);
-      setStatus('Warp reset. Ready to scan.');
+      setStatus(stream ? 'Warp reset. Scanning once…' : 'Warp reset. Ready to scan.');
+      if (stream) {
+        draw();
+      }
     }
 
     function stopLoop() {
@@ -148,39 +165,92 @@
     }
 
     function draw() {
+      if (!isScanning) {
+        return;
+      }
+
       if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         animationId = requestAnimationFrame(draw);
         return;
       }
 
       frameCtx.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+      outputCtx.drawImage(frameCanvas, 0, 0, outputCanvas.width, outputCanvas.height);
 
-      outputCtx.drawImage(
-        frameCanvas,
-        scanX,
-        0,
-        1,
-        frameCanvas.height,
-        scanX,
-        0,
-        1,
-        outputCanvas.height
-      );
+      if (direction === 'horizontal') {
+        warpCtx.drawImage(
+          frameCanvas,
+          scanPos,
+          0,
+          1,
+          frameCanvas.height,
+          scanPos,
+          0,
+          1,
+          warpCanvas.height
+        );
+
+        outputCtx.drawImage(
+          warpCanvas,
+          0,
+          0,
+          scanPos + 1,
+          warpCanvas.height,
+          0,
+          0,
+          scanPos + 1,
+          outputCanvas.height
+        );
+      } else {
+        warpCtx.drawImage(
+          frameCanvas,
+          0,
+          scanPos,
+          frameCanvas.width,
+          1,
+          0,
+          scanPos,
+          warpCanvas.width,
+          1
+        );
+
+        outputCtx.drawImage(
+          warpCanvas,
+          0,
+          0,
+          warpCanvas.width,
+          scanPos + 1,
+          0,
+          0,
+          outputCanvas.width,
+          scanPos + 1
+        );
+      }
 
       scanlineCtx.clearRect(0, 0, scanlineCanvas.width, scanlineCanvas.height);
       scanlineCtx.save();
       scanlineCtx.strokeStyle = '#37b7ff';
       scanlineCtx.lineWidth = 2;
       scanlineCtx.beginPath();
-      scanlineCtx.moveTo(scanX + 0.5, 0);
-      scanlineCtx.lineTo(scanX + 0.5, scanlineCanvas.height);
+      if (direction === 'horizontal') {
+        scanlineCtx.moveTo(scanPos + 0.5, 0);
+        scanlineCtx.lineTo(scanPos + 0.5, scanlineCanvas.height);
+      } else {
+        scanlineCtx.moveTo(0, scanPos + 0.5);
+        scanlineCtx.lineTo(scanlineCanvas.width, scanPos + 0.5);
+      }
       scanlineCtx.stroke();
       scanlineCtx.restore();
 
-      scanX += 1;
-      if (scanX >= outputCanvas.width) {
-        scanX = 0;
-        setStatus('Completed one full warp pass. Continuing…');
+      scanPos += 1;
+      const maxPos = direction === 'horizontal' ? outputCanvas.width : outputCanvas.height;
+      if (scanPos >= maxPos) {
+        isScanning = false;
+        outputCtx.drawImage(warpCanvas, 0, 0, outputCanvas.width, outputCanvas.height);
+        scanlineCtx.clearRect(0, 0, scanlineCanvas.width, scanlineCanvas.height);
+        setStatus('Completed one full warp pass.');
+        stopLoop();
+        return;
       }
 
       animationId = requestAnimationFrame(draw);
@@ -209,8 +279,7 @@
         await video.play();
         resetBtn.disabled = false;
         resetOutput();
-        setStatus('Camera active. Scanning time warp…');
-        draw();
+        setStatus('Camera active. Scanning one full pass…');
       } catch (error) {
         startBtn.disabled = false;
         setStatus('Camera access failed. Please allow permissions and retry.');
@@ -220,6 +289,12 @@
 
     startBtn.addEventListener('click', start);
     resetBtn.addEventListener('click', resetOutput);
+    directionSelect.addEventListener('change', () => {
+      direction = directionSelect.value;
+      if (stream) {
+        resetOutput();
+      }
+    });
 
     window.addEventListener('beforeunload', () => {
       stopLoop();
