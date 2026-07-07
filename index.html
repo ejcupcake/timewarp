@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blue Line Time Warp</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #0b1020;
+      color: #e5ecff;
+    }
+
+    main {
+      width: min(920px, 96vw);
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .panel {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: #2754ff;
+      color: #fff;
+      border: 0;
+      border-radius: 0.4rem;
+      padding: 0.55rem 0.8rem;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    canvas {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #090c17;
+      border: 1px solid #1d284f;
+      border-radius: 0.5rem;
+      image-rendering: optimizeQuality;
+    }
+
+    p {
+      margin: 0;
+      color: #b3c5ff;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Blue Line Time Warp</h1>
+    <p>Click Start Camera to begin. The blue line scans left to right and captures a slice of time into the output.</p>
+    <div class="panel">
+      <button id="start">Start Camera</button>
+      <button id="reset" disabled>Reset Warp</button>
+      <span id="status">Idle</span>
+    </div>
+    <canvas id="output" width="640" height="480" aria-label="Time warp output"></canvas>
+  </main>
+
+  <video id="video" playsinline autoplay muted hidden></video>
+  <canvas id="frame" width="640" height="480" hidden></canvas>
+
+  <script>
+    const startBtn = document.getElementById('start');
+    const resetBtn = document.getElementById('reset');
+    const statusEl = document.getElementById('status');
+
+    const video = document.getElementById('video');
+    const outputCanvas = document.getElementById('output');
+    const frameCanvas = document.getElementById('frame');
+
+    const outputCtx = outputCanvas.getContext('2d');
+    const frameCtx = frameCanvas.getContext('2d');
+
+    let stream;
+    let scanX = 0;
+    let animationId;
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function resetOutput() {
+      scanX = 0;
+      outputCtx.fillStyle = '#090c17';
+      outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+      setStatus('Warp reset. Ready to scan.');
+    }
+
+    function stopLoop() {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = undefined;
+      }
+    }
+
+    function draw() {
+      frameCtx.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+
+      outputCtx.drawImage(
+        frameCanvas,
+        scanX,
+        0,
+        1,
+        frameCanvas.height,
+        scanX,
+        0,
+        1,
+        outputCanvas.height
+      );
+
+      outputCtx.save();
+      outputCtx.strokeStyle = '#37b7ff';
+      outputCtx.lineWidth = 2;
+      outputCtx.beginPath();
+      outputCtx.moveTo(scanX + 0.5, 0);
+      outputCtx.lineTo(scanX + 0.5, outputCanvas.height);
+      outputCtx.stroke();
+      outputCtx.restore();
+
+      scanX += 1;
+      if (scanX >= outputCanvas.width) {
+        scanX = 0;
+        setStatus('Completed one full warp pass. Continuing…');
+      }
+
+      animationId = requestAnimationFrame(draw);
+    }
+
+    async function start() {
+      if (stream) {
+        return;
+      }
+
+      startBtn.disabled = true;
+      setStatus('Requesting camera permission…');
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          },
+          audio: false
+        });
+
+        video.srcObject = stream;
+
+        await video.play();
+        resetBtn.disabled = false;
+        resetOutput();
+        setStatus('Camera active. Scanning time warp…');
+        draw();
+      } catch (error) {
+        startBtn.disabled = false;
+        setStatus('Camera access failed. Please allow permissions and retry.');
+        console.error(error);
+      }
+    }
+
+    startBtn.addEventListener('click', start);
+    resetBtn.addEventListener('click', resetOutput);
+
+    window.addEventListener('beforeunload', () => {
+      stopLoop();
+      if (!stream) {
+        return;
+      }
+      stream.getTracks().forEach((track) => track.stop());
+      stream = undefined;
+    });
+
+    resetOutput();
+  </script>
+</body>
+</html>
