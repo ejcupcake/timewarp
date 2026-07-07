@@ -47,6 +47,12 @@
       cursor: not-allowed;
     }
 
+    .canvas-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+    }
+
     canvas {
       width: 100%;
       aspect-ratio: 4 / 3;
@@ -54,6 +60,29 @@
       border: 1px solid #1d284f;
       border-radius: 0.5rem;
       image-rendering: optimizeQuality;
+    }
+
+    .canvas-wrap canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #scanline {
+      background: transparent;
+      border: 0;
+      pointer-events: none;
+    }
+
+    .hidden-video {
+      position: fixed;
+      width: 1px;
+      height: 1px;
+      top: -1000px;
+      left: -1000px;
+      opacity: 0;
+      pointer-events: none;
     }
 
     p {
@@ -72,10 +101,13 @@
       <button id="reset" disabled>Reset Warp</button>
       <span id="status">Idle</span>
     </div>
-    <canvas id="output" width="640" height="480" aria-label="Time warp output"></canvas>
+    <div class="canvas-wrap">
+      <canvas id="output" width="640" height="480" aria-label="Time warp output"></canvas>
+      <canvas id="scanline" width="640" height="480" aria-hidden="true"></canvas>
+    </div>
   </main>
 
-  <video id="video" playsinline autoplay muted hidden></video>
+  <video id="video" class="hidden-video" playsinline autoplay muted></video>
   <canvas id="frame" width="640" height="480" hidden></canvas>
 
   <script>
@@ -85,9 +117,11 @@
 
     const video = document.getElementById('video');
     const outputCanvas = document.getElementById('output');
+    const scanlineCanvas = document.getElementById('scanline');
     const frameCanvas = document.getElementById('frame');
 
     const outputCtx = outputCanvas.getContext('2d');
+    const scanlineCtx = scanlineCanvas.getContext('2d');
     const frameCtx = frameCanvas.getContext('2d');
 
     let stream;
@@ -102,6 +136,7 @@
       scanX = 0;
       outputCtx.fillStyle = '#090c17';
       outputCtx.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+      scanlineCtx.clearRect(0, 0, scanlineCanvas.width, scanlineCanvas.height);
       setStatus('Warp reset. Ready to scan.');
     }
 
@@ -113,6 +148,11 @@
     }
 
     function draw() {
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        animationId = requestAnimationFrame(draw);
+        return;
+      }
+
       frameCtx.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
 
       outputCtx.drawImage(
@@ -127,14 +167,15 @@
         outputCanvas.height
       );
 
-      outputCtx.save();
-      outputCtx.strokeStyle = '#37b7ff';
-      outputCtx.lineWidth = 2;
-      outputCtx.beginPath();
-      outputCtx.moveTo(scanX + 0.5, 0);
-      outputCtx.lineTo(scanX + 0.5, outputCanvas.height);
-      outputCtx.stroke();
-      outputCtx.restore();
+      scanlineCtx.clearRect(0, 0, scanlineCanvas.width, scanlineCanvas.height);
+      scanlineCtx.save();
+      scanlineCtx.strokeStyle = '#37b7ff';
+      scanlineCtx.lineWidth = 2;
+      scanlineCtx.beginPath();
+      scanlineCtx.moveTo(scanX + 0.5, 0);
+      scanlineCtx.lineTo(scanX + 0.5, scanlineCanvas.height);
+      scanlineCtx.stroke();
+      scanlineCtx.restore();
 
       scanX += 1;
       if (scanX >= outputCanvas.width) {
